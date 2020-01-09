@@ -25,9 +25,9 @@ public class ProductionZonesDB{
 			dataFile.createNewFile(); // if this files does not exists, creates new file
 		}
 		InputStream fis = new FileInputStream(DATA_FILE); // we're sure the file exists now
-	    JsonReader reader = Json.createReader(fis);
-	    db = reader.readObject(); // puts the json data in the private JsonObject db
-	    }
+		JsonReader reader = Json.createReader(fis);
+		db = reader.readObject(); // puts the json data in the private JsonObject db
+		}
 	
 	/**
 	 * Creates a production zone on said id
