@@ -1,0 +1,16 @@
+[
+{
+  "modid": "productionzones",
+  "name": "Production zones",
+  "description": "When walled by a command, makes itemps drop in certain locations defined by the staff",
+  "version": "1.0.0",
+  "mcversion": "1.7.10",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["GandalfTheSecond", "fllorrin"],
+  "credits": "",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]
