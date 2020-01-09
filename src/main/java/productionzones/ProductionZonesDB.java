@@ -2,6 +2,7 @@ package productionzones;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.InputStream;
 
@@ -21,9 +22,10 @@ public class ProductionZonesDB{
 	 * Default constructor for the ProductionZonesDB class.
 	 * it creates a data file if it doesn't exist
 	 * 
-	 * @throws IOException if something has occurred with I/O
+	 * @throws IOException
+	 * @throws FileNotFoundException
 	 */
-	public ProductionZonesDB(String path) throws IOException {
+	public ProductionZonesDB(String path) throws Exception{ // throws Exception -> it is expected that exceptions could be thrown
 		File dataFile = new File(path);
 		if (dataFile.exists()) { // checks if the data files exists
 			dataFile.createNewFile(); // if this files does not exists, creates new file
