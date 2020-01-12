@@ -143,7 +143,7 @@ public class ProductionZonesDB{
     }
     
     /**
-     * 
+     * Ping a production zone : get all items to drop and their amount.
      * 
      * @zone Id is the id of the productionZone to ping
      */
