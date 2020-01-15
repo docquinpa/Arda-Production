@@ -9,7 +9,10 @@ import java.util.Set;
 /**
  * Class that handles the production zones stored in a file and allows to dialogue with it
  * 
+ * 
  * Note: You need to explicitly call the save method to save all the changes into said file
+ * 
+ * @author GandalfTheSecond
  */
 public class ProductionZonesDB{
     
@@ -67,7 +70,8 @@ public class ProductionZonesDB{
      *    STR_ITEMS: {}
      * }
      * 
-     * @param id is a string with format "dimension-x,y,z" with x, y and z the coordinates of the production zone
+     * @param id is a string with with the production zone will be identified. Do note that it must be unique,
+     * it will override an existing production zone.
      */
     public void createZone(String id) {
         JsonObjectBuilder temp;
@@ -197,8 +201,39 @@ public class ProductionZonesDB{
         out.close();
     }
     
+    /**
+     * Simple toString method, giving the path to the data file and what contains the data base.
+     */
     public String toString(){
         return "Storage: " + path + " | Data: " + db.toString();
+    }
+    
+    /**
+     * Returns a set composed by all zoneIds in the data base
+     */
+    public Set<String> allZoneIds(){
+        Set<String> result = db.keySet();
+        return result;
+    }
+    
+    /**
+     * This method gives the last ping as a timestamp (milliseconds format) and all the items and their amount of milliseconds required to create one examplar 
+     */
+    public HashMap<String, Long> zoneInfo(String zoneId){
+        HashMap<String, Long> result = new HashMap<String, Long>();
+        JsonObject productionZone;
+        JsonObject items;
+        checkContainsKey(db, zoneId, MSG_ZONE_NOT_FOUND);
+        productionZone = db.getJsonObject(zoneId); // getting the production zone
+        result.put(STR_LAST_PING, productionZone.getJsonNumber(STR_LAST_PING).longValue()); // getting the last ping
+        items = productionZone.getJsonObject(STR_ITEMS); // getting the items
+        for (String item : items.keySet()){ // going through the items in that zone
+            long amount = items.getJsonArray(item) // getting the array
+                               .getJsonNumber(INDEX_ITEM_NEEDED_MILLIS) // getting the needed number in JsonNumber type
+                               .longValue(); // converting it to a long
+            result.put(item, amount);
+        }
+        return result;
     }
     
     /**
