@@ -7,7 +7,13 @@ import java.util.Set;
 
 
 /**
- * Class that handles the production zones stored in a file and allows to dialogue with it
+ * Class that handles production zones stored in a file and allows to dialogue with it. 
+ * It class allows to create, modify, view, delete zones and to call them to obtain a certain amount of items to be produced when pinged.
+ * This amount of items changes according to the time that has elapsed between two of these "pings" and the time that is needed to produce an item.
+ * 
+ * This data base is based on the ids of the production zones. The structure of theses ids is chosen by the user, it has however to be Strings.
+ * 
+ * There is also the possibility to put a limit to the production of a zone according to the elapsed time if this time would be bigger as the limit.
  * 
  * 
  * Note: You need to explicitly call the save method to save all the changes into said file
@@ -19,22 +25,29 @@ public class ProductionZonesDB{
     private JsonObject db;
     private String     path;
     
-    private static final String MSG_ZONE_NOT_FOUND       = "This production zone does not exist";
-    private static final String MSG_KEY_NOT_FOUND        = "Map object doesn't contains this key";
+    private static final String MSG_ZONE_NOT_FOUND        = "This production zone does not exist";
+    private static final String MSG_KEY_NOT_FOUND         = "Map object doesn't contains this key";
+    private static final String MSG_INVALID_MAX_PROD_TIME = "The maximum produtction time is not valid";
     
-    private static final String STR_LAST_PING            = "last-ping";
-    private static final String STR_ITEMS                = "items";
+    private static final String STR_LAST_PING             = "last-ping";
+    private static final String STR_ITEMS                 = "items";
+    private static final String STR_ADDITIONNAL_DATA      = "@@DATA$";
+    private static final String STR_MAX_PRODUCTION_TIME   = "max-production-time-lapse";
     
-    private static final int    DEFAULT_LAST_PROGRESSION = 0;
-    private static final int    INDEX_ITEM_NEEDED_MILLIS = 0;
-    private static final int    INDEX_ITEM_PROGESSION    = 1;
+    private static final int    DEFAULT_LAST_PROGRESSION  = 0;
+    private static final int    INDEX_ITEM_NEEDED_MILLIS  = 0;
+    private static final int    INDEX_ITEM_PROGESSION     = 1;
+    
+    private static final long   DAY_MILLISECONDS          = 86_400_000;
+    private static final long   MONTH_MILLISECONDS        = 30 * DAY_MILLISECONDS;
+    private static final long   DEFAULT_MAX_PROD_TIME     = MONTH_MILLISECONDS;
     
     
     /**
      * Default constructor for the ProductionZonesDB class.
-     * it creates a data file if it doesn't exist
      * 
-     * @param path is the path to the file where the data about the production zones are supposed to be
+     * @param path is the path to the file where the data about the production zones are supposed to be.
+     * If the file does not exist, it creates an empty data base. (the file would be created in the save() method)
      * 
      * @throws IOException
      * @throws FileNotFoundException
@@ -49,6 +62,7 @@ public class ProductionZonesDB{
         dataFile = new File(path);
         if (!dataFile.exists()) { // checks if the data files exists
             db = Json.createObjectBuilder().build(); // if it does not exist, then create an empty JsonObject for the db
+            addDefaultAdditionnalData();
         } else { // reading the info in the file:
             fis = new FileInputStream(path); // we're sure the file exists now
             try {
@@ -57,6 +71,7 @@ public class ProductionZonesDB{
                 reader.close();
             } catch (javax.json.JsonException e) { // usually if the file is empty
                 db = Json.createObjectBuilder().build();
+                addDefaultAdditionnalData();
             }
             fis.close();
         }
@@ -170,8 +185,10 @@ public class ProductionZonesDB{
             JsonArray item        = items.getJsonArray(key);
             long itemNeededMillis = item.getJsonNumber(INDEX_ITEM_NEEDED_MILLIS).longValue();
             long progression      = item.getJsonNumber(INDEX_ITEM_PROGESSION).longValue();
-            long amount           = (now + progression - previousPing) / itemNeededMillis; // entire division as all variables are long
-            progression           = (now + progression - previousPing) % itemNeededMillis; // new progression
+            long maxProdTime      = getMaxProdTime(); // getting the maximimum production time that is allowed in the db
+            long totalProgression = Math.min(now + progression - previousPing, maxProdTime); // if the total progrssion is greater than what is authorized, it is changed to the maximum that is authorized
+            long amount           = totalProgression / itemNeededMillis; // entire division as all variables are long
+            progression           = totalProgression % itemNeededMillis; // new progression
             item = Json.createArrayBuilder().add(itemNeededMillis)
                                             .add(progression)
                                             .build();
@@ -205,7 +222,7 @@ public class ProductionZonesDB{
      * Simple toString method, giving the path to the data file and what contains the data base.
      */
     public String toString(){
-        return "Storage: " + path + " | Data: " + db.toString();
+        return "Storage: " + path + " | Data: " + db;
     }
     
     /**
@@ -233,6 +250,49 @@ public class ProductionZonesDB{
                                .longValue(); // converting it to a long
             result.put(item, amount);
         }
+        return result;
+    }
+    
+    /**
+     * Change the maximum prodcution time allowed for all prodcution zones.
+     * 
+     * @param timeLapse is this maximum. It must be expressed in millisceonds ans be greater than 0.
+     * 
+     * @throws IllegalArgumentException if the timeLapse <= 0
+     */
+    public void changeMaxProdictionTime(long timeLapse){
+        JsonObject additionnalData;
+        if (timeLapse <= 0) throw new IllegalArgumentException(MSG_INVALID_MAX_PROD_TIME);
+        getMaxProdTime(); // adds all missing things if they don't exist
+        additionnalData = db.getJsonObject(STR_ADDITIONNAL_DATA);
+        additionnalData = touchJsonObject(additionnalData, STR_MAX_PRODUCTION_TIME, Json.createArrayBuilder().add(timeLapse).build().getJsonNumber(0));
+        db = touchJsonObject(db, STR_ADDITIONNAL_DATA, additionnalData); // adding the additionnal data to the data base
+    }
+    
+    /**
+     * Creating a default additionnal data
+     */
+    private void addDefaultAdditionnalData(){
+        JsonObject additionnalData = Json.createObjectBuilder() // creating JsonObjectBuilder object
+                                         .add(STR_MAX_PRODUCTION_TIME, DEFAULT_MAX_PROD_TIME) // adding default maximum for production time
+                                         .build();
+        db = touchJsonObject(db, STR_ADDITIONNAL_DATA, additionnalData); // adding the additionnal data to the data base
+    }
+    
+    /**
+     * Gives the maximum production time as stated in the db and creates it and gives the default if it isn't in the db
+     */
+    private long getMaxProdTime(){
+        long result;
+        if (!db.containsKey(STR_ADDITIONNAL_DATA)){
+            addDefaultAdditionnalData();
+        }
+        else if (!db.getJsonObject(STR_ADDITIONNAL_DATA).containsKey(STR_MAX_PRODUCTION_TIME)){
+            addDefaultAdditionnalData(); // change this if more additionnal data is added
+        }
+        result = db.getJsonObject(STR_ADDITIONNAL_DATA)
+                   .getJsonNumber(STR_MAX_PRODUCTION_TIME)
+                   .longValue();
         return result;
     }
     
