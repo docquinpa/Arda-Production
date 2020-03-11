@@ -21,4 +21,12 @@ public void init(FMLInitializationEvent e)
 public void postInit(FMLPostInitializationEvent e)
 {
 }
+
+@EventHandler
+public void serverStarting(FMLServerStartingEvent e){
+	
+	//Éxecuter au démarage du serveur
+	e.registerServerCommand(new Commandes());
+	
+}
 }
