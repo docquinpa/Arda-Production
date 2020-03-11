@@ -94,20 +94,18 @@ public class Commandes extends CommandBase implements ICommand  {
 			
 			
 			
-			System.out.println("Le joueur : "+ Cplayer +  "a récupérer la zone : " + arguments[1]);
+			System.out.println("Le joueur : "+ Cplayer +  " a récupérer la zone : " + arguments[1]);
 			
 			for(Entry<String, Long> entry : ping.entrySet()){
 				
 				server.getCommandManager().executeCommand(sender, "give" + ESP  + Cplayer +  ESP + entry.getKey()+  ESP + entry.getValue() );
-				try {
-					zones.save();
-				} catch (Exception e) {
-					// TODO Auto-generated catch block
-					e.printStackTrace();
-				}
-				
 			}
-			
+			try {
+				zones.save();
+			} catch (Exception e) {
+				// TODO Auto-generated catch block
+				e.printStackTrace();
+			}
 			
 		}
 		
@@ -242,7 +240,7 @@ public class Commandes extends CommandBase implements ICommand  {
 	 */
 		@Override
 		public boolean canCommandSenderUseCommand(ICommandSender sender) {
-		sender.canCommandSenderUseCommand(0, "");
+		sender.canCommandSenderUseCommand(2, "");
 		return true;
 	}
 
@@ -272,4 +270,3 @@ public class Commandes extends CommandBase implements ICommand  {
 
 
 }
-
