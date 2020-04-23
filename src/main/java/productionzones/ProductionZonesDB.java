@@ -1,22 +1,25 @@
 package productionzones;
 
-import javax.json.*;
+import com.google.gson.*;
 import java.io.*;
 import java.util.HashMap;
+import java.util.Map;
+import java.util.HashSet;
 import java.util.Set;
+import java.lang.Exception.*;
 
 
 /**
  * Class that handles production zones stored in a file and allows to dialogue with it. 
- * It class allows to create, modify, view, delete zones and to call them to obtain a certain amount of items to be produced when pinged.
+ * It allows to create, modify, view, delete zones and to call them to obtain a certain amount of items to be produced when pinged.
  * This amount of items changes according to the time that has elapsed between two of these "pings" and the time that is needed to produce an item.
  * 
  * This data base is based on the ids of the production zones. The structure of theses ids is chosen by the user, it has however to be Strings.
  * 
  * There is also the possibility to put a limit to the production of a zone according to the elapsed time if this time would be bigger as the limit.
+ * The default to this time limit is 30 days.
  * 
- * 
- * Note: You need to explicitly call the save method to save all the changes into said file
+ * Note: You need to explicitly call the save method to save all the changes into said file.
  * 
  * @author GandalfTheSecond
  */
@@ -24,19 +27,22 @@ public class ProductionZonesDB{
     
     private JsonObject db;
     private String     path;
+    private boolean    saved;
     
-    private static final String MSG_ZONE_NOT_FOUND        = "This production zone does not exist";
+    private static final String MSG_ZONE_NOT_FOUND        = "This production zone %s does not exist";
+    private static final String MSG_ZONE_ALREADY_EXISTS   = "This production zone %s already exists";
     private static final String MSG_KEY_NOT_FOUND         = "Map object doesn't contains this key";
     private static final String MSG_INVALID_MAX_PROD_TIME = "The maximum produtction time is not valid";
+    private static final String MSG_ITEM_NOT_FOUND        = "This item %s has not been found";
     
     private static final String STR_LAST_PING             = "last-ping";
     private static final String STR_ITEMS                 = "items";
-    private static final String STR_ADDITIONNAL_DATA      = "@@DATA$";
+    private static final String STR_ITEM_NEEDED_MILLIS    = "needed";
+    private static final String STR_ITEM_PROGRESSION      = "progression";
+    private static final String STR_ADDITIONAL_DATA       = "@@DATA$";
     private static final String STR_MAX_PRODUCTION_TIME   = "max-production-time-lapse";
     
     private static final int    DEFAULT_LAST_PROGRESSION  = 0;
-    private static final int    INDEX_ITEM_NEEDED_MILLIS  = 0;
-    private static final int    INDEX_ITEM_PROGESSION     = 1;
     
     private static final long   DAY_MILLISECONDS          = 86_400_000;
     private static final long   MONTH_MILLISECONDS        = 30 * DAY_MILLISECONDS;
@@ -55,26 +61,27 @@ public class ProductionZonesDB{
     public ProductionZonesDB(String path) throws Exception{ // throws Exception -> it is expected that exceptions could be thrown
         // initiation
         File dataFile;
-        InputStream fis;
-        JsonReader reader;
-        // code
+        BufferedReader bufferedReader;
+        //code
         this.path = path;
         dataFile = new File(path);
+        saved = true;
         if (!dataFile.exists()) { // checks if the data files exists
-            db = Json.createObjectBuilder().build(); // if it does not exist, then create an empty JsonObject for the db
-            addDefaultAdditionnalData();
+            createDB();
         } else { // reading the info in the file:
-            fis = new FileInputStream(path); // we're sure the file exists now
-            try {
-                reader = Json.createReader(fis);
-                db = reader.readObject(); // puts the json data in the private JsonObject db
-                reader.close();
-            } catch (javax.json.JsonException e) { // usually if the file is empty
-                db = Json.createObjectBuilder().build();
-                addDefaultAdditionnalData();
+            bufferedReader = new BufferedReader(new FileReader(path));
+            db = new Gson().fromJson(bufferedReader, JsonObject.class);
+            bufferedReader.close();
+            // making some verifications
+            if (db == null || db.toString().trim().isEmpty()){
+                createDB();
             }
-            fis.close();
         }
+    }
+    
+    private void createDB(){
+        db = new JsonObject();
+        addDefaultAdditionalData(); // adding the default things for the data
     }
     
     /**
@@ -88,14 +95,16 @@ public class ProductionZonesDB{
      * @param id is a string with with the production zone will be identified. Do note that it must be unique,
      * it will override an existing production zone.
      */
-    public void createZone(String id) {
-        JsonObjectBuilder temp;
-        JsonObjectBuilder productionZone = Json.createObjectBuilder()
-                .add(STR_LAST_PING, System.currentTimeMillis()) // puts the current time for the last ping
-                .add(STR_ITEMS, Json.createObjectBuilder().build()); // creates an empty map at key STR_ITEMS
-        temp = jsonObjectToBuilder(db); // saving the current state of the db
-        temp = temp.add(id, productionZone); // adding productionZone
-        db = temp.build(); // saving the db with the modification
+    public void createZone(String zoneId) {
+        JsonObject zone;
+        if (db.has(zoneId)){ // the zone already exists, to avoid it to be overread
+            throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));
+        }
+        zone = new JsonObject();
+        zone.addProperty(STR_LAST_PING, System.currentTimeMillis()); // adds the current timestamp in milliseconds as the last ping
+        zone.add(STR_ITEMS, new JsonObject()); // adding an empty item list
+        db.add(zoneId, zone);
+        saved = false;
     }
     
     /**
@@ -105,38 +114,41 @@ public class ProductionZonesDB{
      * 
      * @throws IllegalArgumentException if it is not in the production zone data base
      */
-    public void removeZone(String id) {
-        db = removeFromJsonObject(db, id);
+    public void removeZone(String zoneId) {
+        if (db.has(zoneId)){
+            db.remove(zoneId);
+            saved = false;
+        } else { // means there is nothing to remove
+            throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));
+        }
     }
     
     /**
      * Adds or modify the informations concerning an item in a production zone.
      * If the item doesn't exist in this production zone, the method adds it, otherwise it changes the corresponding value.
      * 
+     * @param zoneId is the id of the production zone where this item has to be changed or added
      * @param itemId is the id of the item to be added or modified
      * @param millis is the time in milliseconds need to generate one exemplar of this item
-     * @param zoneId is the id of the production zone where this item has to be changed or added
      */
-    public void touchItem(String itemId, long millis, String zoneId) {
-        // initiating
-        JsonObject productionZone;
+    public void touchItem(String zoneId, String itemId, long millis) {
+        JsonObject zone;
         JsonObject items;
-        JsonArrayBuilder item;
-        // info storage
-        checkContainsKey(db, zoneId, MSG_ZONE_NOT_FOUND); // checks if zoneId is a key of the db, throws an IllegalArgumentException if it doesn't
-        productionZone = db.getJsonObject(zoneId); // stores the production zone
-        checkContainsKey(productionZone, STR_ITEMS, MSG_KEY_NOT_FOUND); // checks if there is a key where to store items
-        items = productionZone.getJsonObject(STR_ITEMS); // stores the data about the items in this production zone
-        // Applying changes
-            // saving items:
-        item = Json.createArrayBuilder();
-        item = item.add(millis)
-                   .add(DEFAULT_LAST_PROGRESSION);
-        items = touchJsonObject(items, itemId, item.build());
-            // saving the production zone
-        productionZone = touchJsonObject(productionZone, STR_ITEMS, items);
-            // saving the db
-        db = touchJsonObject(db, zoneId, productionZone);
+        JsonObject item;
+        JsonObject itemData;
+        if (!db.has(zoneId)) { throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));}
+        // getting the info on the production zone
+        zone = db.getAsJsonObject(zoneId);
+        items = zone.getAsJsonObject(STR_ITEMS);
+        // creating the data on the item
+        itemData = new JsonObject();
+        itemData.addProperty(STR_ITEM_NEEDED_MILLIS, millis);
+        itemData.addProperty(STR_ITEM_PROGRESSION, DEFAULT_LAST_PROGRESSION);
+        // saving the data
+        items.add(itemId, itemData); // adding the item to the other items of the zone
+        zone.add(STR_ITEMS, items); // updating the production zone
+        db.add(zoneId, zone); // updating the data base
+        saved = false;
     }
     
     /**
@@ -146,19 +158,17 @@ public class ProductionZonesDB{
      * @param itemId id the id of the item
      */
     public void removeItem(String zoneId, String itemId) {
-        // initiating
-        JsonObject productionZone;
+        JsonObject zone;
         JsonObject items;
-        // code
-            // preparing
-        checkContainsKey(db, zoneId, MSG_ZONE_NOT_FOUND); // checks if zoneId is a key of the db, throws an IllegalArgumentException if it doesn't
-        productionZone = db.getJsonObject(zoneId); // stores the production zone
-        checkContainsKey(productionZone, STR_ITEMS, MSG_KEY_NOT_FOUND); // checks if there is a key where to store items
-        items = productionZone.getJsonObject(STR_ITEMS); // stores the data about the items in this production zone
-            //changing
-        items = removeFromJsonObject(items, itemId); // removes the item's info and key (throws an IllegalArgumentException if there is no correponding key)
-        productionZone = touchJsonObject(productionZone, STR_ITEMS, items); // updates the production zone
-        db = touchJsonObject(db, zoneId, productionZone); // updates the db
+        // getting the info on the production zone
+        if (!db.has(zoneId)) { throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));}
+        zone = db.getAsJsonObject(zoneId);
+        items = zone.getAsJsonObject(STR_ITEMS);
+        if (!items.has(itemId)) { throw new IllegalArgumentException(String.format(MSG_ITEM_NOT_FOUND, itemId));}
+        items.remove(itemId);
+        zone.add(STR_ITEMS, items); // updating the production zone
+        db.add(zoneId, zone); // updating the data base
+        saved = false;
     }
     
     /**
@@ -166,41 +176,39 @@ public class ProductionZonesDB{
      * 
      * @zone Id is the id of the productionZone to ping
      */
-    public HashMap<String, Long> ping(String zoneId) {
-        // checking
-        checkContainsKey(db, zoneId, MSG_ZONE_NOT_FOUND); // checks if zoneId is a key of the db, throws an IllegalArgumentException if it doesn't
+    public Map<String, Long> ping(String zoneId) {
         // initiating
-        HashMap<String, Long> result = new HashMap<String, Long>();
-        JsonObject productionZone;
+        Map<String, Long> result = new HashMap<String, Long>();
+        JsonObject zone;
         JsonObject items;
+        JsonObject item;
         long now = System.currentTimeMillis();
-        long previousPing;
+        long lastPing;
+        long maxProdTime = getMaxProdTime(); // getting the maximimum production time that is allowed in the db
         Set<String> itemsKeySet;
         // code
-        productionZone = db.getJsonObject(zoneId);
-        items = productionZone.getJsonObject(STR_ITEMS);
-        itemsKeySet = items.keySet();
-        previousPing = (productionZone.isNull(STR_LAST_PING)) ? now : productionZone.getJsonNumber(STR_LAST_PING).longValue();
-        for (String key : itemsKeySet){
-            JsonArray item        = items.getJsonArray(key);
-            long itemNeededMillis = item.getJsonNumber(INDEX_ITEM_NEEDED_MILLIS).longValue();
-            long progression      = item.getJsonNumber(INDEX_ITEM_PROGESSION).longValue();
-            long maxProdTime      = getMaxProdTime(); // getting the maximimum production time that is allowed in the db
-            long totalProgression = Math.min(now + progression - previousPing, maxProdTime); // if the total progrssion is greater than what is authorized, it is changed to the maximum that is authorized
-            long amount           = totalProgression / itemNeededMillis; // entire division as all variables are long
-            progression           = totalProgression % itemNeededMillis; // new progression
-            item = Json.createArrayBuilder().add(itemNeededMillis)
-                                            .add(progression)
-                                            .build();
-            items = touchJsonObject(items, key, item); // updating the items JsonObject
-            // storing result
-            result.put(key, amount);
+        if (!db.has(zoneId)) { throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));} // checking
+        zone        = db.getAsJsonObject(zoneId);
+        lastPing    = (zone.has(STR_LAST_PING)) ? zone.get(STR_LAST_PING).getAsLong() : now ; // if the case is no, then it will be changed later
+        items       = zone.getAsJsonObject(STR_ITEMS);
+        itemsKeySet = getKeySet(items);
+        for (String itemId : itemsKeySet){
+            // calculating
+            item = items.getAsJsonObject(itemId);
+            long neededMillis     = item.get(STR_ITEM_NEEDED_MILLIS).getAsLong();
+            long lastProgression  = item.get(STR_ITEM_PROGRESSION).getAsLong();
+            long totalProgression = Math.min(now + lastProgression - lastPing, maxProdTime); // if the total progrssion is greater than what is authorized, it is changed to the maximum that is authorized
+            long amount           = totalProgression / neededMillis; // entire division as all variables are long
+            lastProgression       = totalProgression % neededMillis; // new last progression
+            // storing results
+            item.addProperty(STR_ITEM_PROGRESSION, lastProgression);
+            items.add(itemId, item); // storing in the items list
+            result.put(itemId, amount); // saving the amount for this particular item
         }
-        // updating the db
-        productionZone = touchJsonObject(productionZone, STR_LAST_PING, Json.createArrayBuilder().add(now).build().getJsonNumber(0)); // updating the last ping in the production zone
-        productionZone = touchJsonObject(productionZone, STR_ITEMS, items); // updating the items informations in the prodution zone
-        db = touchJsonObject(db, zoneId ,productionZone); // updating the db
-        // returning the map with the items and their amount
+        zone.add(STR_ITEMS, items);
+        zone.addProperty(STR_LAST_PING, now);
+        db.add(zoneId, zone);
+        saved = false;
         return result;
     }
     
@@ -208,47 +216,49 @@ public class ProductionZonesDB{
      * Saves the current state of the private JsonObject db into the data file
      */
     public void save() throws Exception {
-        // opnening
-        OutputStream out = new FileOutputStream(path);
-        JsonWriter writer = Json.createWriter(out);
-        // writing
-        writer.write(db);
-        // closing
-        writer.close();
-        out.close();
+        if (!saved){ // avoiding unnecessary saves
+            try (Writer writer = new FileWriter(this.path)) {
+                Gson gson = new GsonBuilder().create();
+                gson.toJson(db, writer);
+                saved = true;
+            } catch (Exception e){
+                throw e;
+            }
+        }
     }
     
     /**
      * Simple toString method, giving the path to the data file and what contains the data base.
      */
     public String toString(){
-        return "Storage: " + path + " | Data: " + db;
+        return "Storage: " + path + " | Data: " + db.toString();
     }
     
     /**
      * Returns a set composed by all zoneIds in the data base
      */
     public Set<String> allZoneIds(){
-        Set<String> result = db.keySet();
-        return result;
+        return getKeySet(db);
     }
     
     /**
      * This method gives the last ping as a timestamp (milliseconds format) and all the items and their amount of milliseconds required to create one examplar 
      */
-    public HashMap<String, Long> zoneInfo(String zoneId){
-        HashMap<String, Long> result = new HashMap<String, Long>();
-        JsonObject productionZone;
+    public Map<String, Long> zoneInfo(String zoneId){
+        Map<String, Long> result = new HashMap<String, Long>();
+        JsonObject zone;
         JsonObject items;
-        checkContainsKey(db, zoneId, MSG_ZONE_NOT_FOUND);
-        productionZone = db.getJsonObject(zoneId); // getting the production zone
-        result.put(STR_LAST_PING, productionZone.getJsonNumber(STR_LAST_PING).longValue()); // getting the last ping
-        items = productionZone.getJsonObject(STR_ITEMS); // getting the items
-        for (String item : items.keySet()){ // going through the items in that zone
-            long amount = items.getJsonArray(item) // getting the array
-                               .getJsonNumber(INDEX_ITEM_NEEDED_MILLIS) // getting the needed number in JsonNumber type
-                               .longValue(); // converting it to a long
-            result.put(item, amount);
+        // getting the info on the production zone
+        if (!db.has(zoneId)) { throw new IllegalArgumentException(String.format(MSG_ZONE_ALREADY_EXISTS, zoneId));}
+        zone = db.getAsJsonObject(zoneId);
+        items = zone.getAsJsonObject(STR_ITEMS);
+        // storing the results
+        result.put(STR_LAST_PING, zone.get(STR_LAST_PING).getAsLong()); // adding the last ping timestamp
+        Set<String> allItemsIds = getKeySet(items);
+        for (String itemId : allItemsIds){
+            JsonObject itemInfos = items.getAsJsonObject(itemId); // obtaining the informations stored for this item
+            Long timestamp = itemInfos.get(STR_ITEM_NEEDED_MILLIS).getAsLong(); // obtaining the needed timestamp
+            result.put(itemId, timestamp); // adding the item and it's needed timestamp
         }
         return result;
     }
@@ -261,84 +271,57 @@ public class ProductionZonesDB{
      * @throws IllegalArgumentException if the timeLapse <= 0
      */
     public void changeMaxProdictionTime(long timeLapse){
-        JsonObject additionnalData;
-        if (timeLapse <= 0) throw new IllegalArgumentException(MSG_INVALID_MAX_PROD_TIME);
-        getMaxProdTime(); // adds all missing things if they don't exist
-        additionnalData = db.getJsonObject(STR_ADDITIONNAL_DATA);
-        additionnalData = touchJsonObject(additionnalData, STR_MAX_PRODUCTION_TIME, Json.createArrayBuilder().add(timeLapse).build().getJsonNumber(0));
-        db = touchJsonObject(db, STR_ADDITIONNAL_DATA, additionnalData); // adding the additionnal data to the data base
+        if (db.has(STR_ADDITIONAL_DATA)) { // means the additionnal data is there
+            JsonObject additionalData = db.getAsJsonObject(STR_ADDITIONAL_DATA);
+            additionalData.addProperty(STR_MAX_PRODUCTION_TIME, timeLapse);
+        } else {
+            addDefaultAdditionalData();
+            changeMaxProdictionTime(timeLapse); // laziness: 100%
+        }
+        saved = false;
     }
     
     /**
      * Creating a default additionnal data
      */
-    private void addDefaultAdditionnalData(){
-        JsonObject additionnalData = Json.createObjectBuilder() // creating JsonObjectBuilder object
-                                         .add(STR_MAX_PRODUCTION_TIME, DEFAULT_MAX_PROD_TIME) // adding default maximum for production time
-                                         .build();
-        db = touchJsonObject(db, STR_ADDITIONNAL_DATA, additionnalData); // adding the additionnal data to the data base
+    private void addDefaultAdditionalData(){
+        JsonObject additionalData = new JsonObject();
+        additionalData.addProperty(STR_MAX_PRODUCTION_TIME, DEFAULT_MAX_PROD_TIME);
+        db.add(STR_ADDITIONAL_DATA, additionalData);
+        saved = false;
     }
     
     /**
      * Gives the maximum production time as stated in the db and creates it and gives the default if it isn't in the db
+     * 
+     * In certain cases, this methos changes things in the DB if some things are missing, so you might want to use the method save afterwards
      */
     private long getMaxProdTime(){
-        long result;
-        if (!db.containsKey(STR_ADDITIONNAL_DATA)){
-            addDefaultAdditionnalData();
+        long maxProdTime = DEFAULT_MAX_PROD_TIME; // default
+        if (db.has(STR_ADDITIONAL_DATA)) { // means the additionnal data is there
+            JsonObject additionalData = db.getAsJsonObject(STR_ADDITIONAL_DATA);
+            if (additionalData.has(STR_MAX_PRODUCTION_TIME)) { // means the maximum production time is there, all in order
+                // the real thing happens here
+                maxProdTime = additionalData.get(STR_MAX_PRODUCTION_TIME).getAsLong();
+                // it's over, all the other things are there to avoid an error
+            } else { // no maximum production time in there, needs to be fixed
+                changeMaxProdictionTime(DEFAULT_MAX_PROD_TIME);
+            }
+        } else { // no additional data in there, need to fix it
+            addDefaultAdditionalData();
         }
-        else if (!db.getJsonObject(STR_ADDITIONNAL_DATA).containsKey(STR_MAX_PRODUCTION_TIME)){
-            addDefaultAdditionnalData(); // change this if more additionnal data is added
-        }
-        result = db.getJsonObject(STR_ADDITIONNAL_DATA)
-                   .getJsonNumber(STR_MAX_PRODUCTION_TIME)
-                   .longValue();
-        return result;
+        return maxProdTime;
     }
     
     /**
-     * Checks if a given key is part of the JsonObject and throws an IllegalArgumentException if it doesn't
-     * 
-     * @param object is the object where we want to search for the key
-     * @param key is the key spoken above
+     * Creates a key set for the JsonObject
      */
-    private static void checkContainsKey(JsonObject object, String key, String msg) {
-        if (!object.containsKey(key)) { // checks if this key is a production zone in db
-         throw new IllegalArgumentException(msg);
-        }
-    }
-    
-    /**
-     * Creates a JsonObjectBuilder object with a JsonObject
-     * 
-     * @param object is the object with wich the JsonObjectBuilder is created
-     */
-    private static JsonObjectBuilder jsonObjectToBuilder(JsonObject object){
-        JsonObjectBuilder result = Json.createObjectBuilder(); // initiating the result
-        for (String key : object.keySet()){
-            JsonValue value = object.get(key); // get the corresponding value
-            result.add(key, value); // adds it
+    private Set<String> getKeySet(JsonObject o){
+        Set<String> result = new HashSet<String>();
+        Set<Map.Entry<String, JsonElement>> entries = o.entrySet();//will return members of your object
+        for (Map.Entry<String, JsonElement> entry: entries) {
+            result.add(entry.getKey());
         }
         return result;
-    }
-    
-    /**
-     * Adds or modifies a value  with specified a key to a JsonObject.
-     */
-    private static JsonObject touchJsonObject(JsonObject object, String key, JsonValue value){
-        JsonObjectBuilder temp = jsonObjectToBuilder(object); // stores the object in a changes allowed JsonObjectBuilder
-        temp = temp.add(key, value); // adds said value
-        return temp.build(); // converts it to a JsonObject
-    }
-    
-    /**
-     * Removes a key, value pair in a JsonObject.
-     * @throw IllegalArgumentException if the key is not part of the object
-     */
-    private static JsonObject removeFromJsonObject(JsonObject object, String key){
-        checkContainsKey(object, key, MSG_KEY_NOT_FOUND);
-        JsonObjectBuilder temp = jsonObjectToBuilder(object); // stores the object in a changes allowed JsonObjectBuilder
-        temp.remove(key);
-        return temp.build();
     }
 }
