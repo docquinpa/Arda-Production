@@ -41,13 +41,22 @@ public class TimeLapse
         INFO_MAP = map;
     }
     
+    private static final String MUST_BE_POSITIVE = "The input must be positive : %s";
+    
     /**
      * Constructor, the input is the user's input inf this format : "9d6h" with letters such as w, d, h, m, s for weeks, days, hours, minutes and seconds
      */
     public TimeLapse(String input)
     {
         millis = constructMillis(input);
-        
+    }
+    
+    /**
+     * Constructor with the time lapse in long value
+     */
+    public TimeLapse(long input){
+        if (input <= 0) { throw new IllegalArgumentException(String.format(MUST_BE_POSITIVE, input)); }
+        millis = input;
     }
 
     private long constructMillis(String input){
