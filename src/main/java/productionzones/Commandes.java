@@ -30,7 +30,6 @@ import net.minecraft.util.Vec3;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.event.entity.minecart.MinecartEvent;
-import sun.security.krb5.internal.crypto.crc32;
 import net.minecraft.*;
 public class Commandes extends CommandBase implements ICommand  {
 
@@ -66,14 +65,17 @@ public class Commandes extends CommandBase implements ICommand  {
 		String ESP = " "; //little fonction to set an space in string chains
 			ProductionZonesDB zones = null;
 			try {
-				zones = new ProductionZonesDB("fichier.json");
+				zones = new ProductionZonesDB("productionszones.json");
 			} catch (Exception e) {
 				// TODO Auto-generated catch block
 				e.printStackTrace();
 			}
 			
 			MinecraftServer server = MinecraftServer.getServer();
-		
+			
+			
+			
+			
 		
 		
 		
@@ -94,11 +96,11 @@ public class Commandes extends CommandBase implements ICommand  {
 			
 			
 			
-			System.out.println("Le joueur : "+ Cplayer +  " a récupérer la zone : " + arguments[1]);
+			System.out.println("The player : "+ Cplayer +  " has reclaim the zone : " + arguments[1]);
 			
 			for(Entry<String, Long> entry : ping.entrySet()){
 				
-				server.getCommandManager().executeCommand(sender, "give" + ESP  + Cplayer +  ESP + entry.getKey()+  ESP + entry.getValue() );
+				server.getCommandManager().executeCommand(sender, "give" + ESP  + Cplayer +  ESP + entry.getKey()+  ESP + entry.getValue());
 			}
 			try {
 				zones.save();
@@ -117,11 +119,11 @@ public class Commandes extends CommandBase implements ICommand  {
 			
 			
 				if(zones.allZoneIds().contains(arguments[1])){
-					sender.addChatMessage(new ChatComponentText("La zone"+ESP+arguments[1]+ESP+ "existe déjà !"));
+					sender.addChatMessage(new ChatComponentText("The zone :"+ESP+arguments[1]+ESP+ "already exist !"));
 				}
 				else{
 					
-					sender.addChatMessage(new ChatComponentText("La zone"+ESP+arguments[1]+ESP+"a été crée ! "));
+					sender.addChatMessage(new ChatComponentText("The zone :"+ESP+arguments[1]+ESP+"was created ! "));
 					w.setBlock(cox, coy, coz, commandblock);
 					zones.createZone(arguments[1]);
 					try {
@@ -139,7 +141,13 @@ public class Commandes extends CommandBase implements ICommand  {
 		 * ======================================================================/
 		 */
 			if(arguments[0].equalsIgnoreCase("deleteZone")){
-			zones.removeZone(arguments[1]);		
+				if(zones.allZoneIds().contains(arguments[1])){
+					sender.addChatMessage(new ChatComponentText("The Zone :"+ESP+arguments[1]+ESP+"has been removed !"));
+					zones.removeZone(arguments[1]);
+				}
+				else{
+					sender.addChatMessage(new ChatComponentText("The Zone :"+ESP+arguments[1]+ESP+"does not exist !"));
+				}
 			try {
 				zones.save();
 			} catch (Exception e) {
@@ -150,53 +158,48 @@ public class Commandes extends CommandBase implements ICommand  {
 			
 			}
 		
+
+			
 		/**======================================================================\
-		 * Modify a Zone                                                          | 
+		 * Add an item to the Zone                                                | 
 		 * ======================================================================/
 		 */
-			if(arguments[0].equalsIgnoreCase("modifyZone")){
-			
-			/**======================================================================\
-			 * Add an item to the Zone                                                | 
-			 * ======================================================================/
-			 */
-				if(arguments[1].equalsIgnoreCase("touchItem")){
-					zones.touchItem( (arguments[3]), Long.parseLong(arguments[4]) ,arguments[2]);
-					try {
-						zones.save();
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-					
+			if(arguments[0].equalsIgnoreCase("touchItem")){
+					zones.touchItem(arguments[1],arguments[2], new TimeLapse(arguments[3]).getMillis()  );
+					sender.addChatMessage(new ChatComponentText("You have added the item:"+ESP+arguments[2]+ESP+"to the zone"+ESP+arguments[1]+ESP+"!"+ESP+"It will be produced at a rate of 1 every :"+ESP+ new TimeLapse(arguments[3]).getMillis()/60000+ESP+"minutes !"));
+				
+				try {
+					zones.save();
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				}
 				
 				
 			}
 			
-			/**======================================================================\
-			 * Remove item from the Zone                                              | 
-			 * ======================================================================/
-			 */
-				if(arguments[1].equalsIgnoreCase("removeItem")){
-					zones.removeItem(arguments[2], arguments[3]);
-					try {
-						zones.save();
-					} catch (Exception e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				
-				
+		/**======================================================================\
+		 * Remove item from the Zone                                              | 
+		 * ======================================================================/
+		 */
+			if(arguments[0].equalsIgnoreCase("removeItem")){
+				zones.removeItem(arguments[1], arguments[2]);
+				sender.addChatMessage(new ChatComponentText("You have removed the item"+ESP+arguments[2]+ESP+"to the zone :"+ESP+arguments[1]+ESP+"!"));
 			}
-		}
+		
 			
 			/**======================================================================\
 			 * Get all zone name                                                      | 
 			 * ======================================================================/
 			 */
 				if(arguments[0].equalsIgnoreCase("list")){
-					sender.addChatMessage(new ChatComponentText(zones.allZoneIds().toString()));
-					
+					sender.addChatMessage(new ChatComponentText(zones.allZoneIds().toString()));	
+				}
+				try {
+					zones.save();
+				} catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
 				}
 				
 
@@ -208,11 +211,26 @@ public class Commandes extends CommandBase implements ICommand  {
 					Map<String , Long> Info = zones.zoneInfo(arguments[1]);
 					
 					for(Entry<String, Long> entry : Info.entrySet()){
-						sender.addChatMessage(new ChatComponentText("La zone"+ESP+arguments[1]+ESP+"contient :"+ESP+entry.getKey()));
+						sender.addChatMessage(new ChatComponentText("The zone :"+ESP+arguments[1]+ESP+"contains :"+ESP+entry.getKey()));
 						
 					}
 					
 					
+				}
+				
+			/**======================================================================\
+			 * Change the max time production                                         | 
+			 * ======================================================================/
+			 */
+				if(arguments[0].equalsIgnoreCase("ChangeMaxProductionTime")){
+					zones.changeMaxProdictionTime(new TimeLapse(arguments[1]).getMillis());
+					sender.addChatMessage(new ChatComponentText("You have changed the maximum production time of the mod to"+ESP+new TimeLapse(arguments[1]).getMillis()/86400000+ESP+"days !"));
+					try {
+						zones.save();
+					} catch (Exception e) {
+						// TODO Auto-generated catch block
+						e.printStackTrace();
+					}
 				}
 				
 				
@@ -240,7 +258,7 @@ public class Commandes extends CommandBase implements ICommand  {
 	 */
 		@Override
 		public boolean canCommandSenderUseCommand(ICommandSender sender) {
-		sender.canCommandSenderUseCommand(2, "");
+		sender.canCommandSenderUseCommand(0, "");
 		return true;
 	}
 
@@ -251,10 +269,8 @@ public class Commandes extends CommandBase implements ICommand  {
 		@Override
 		public List addTabCompletionOptions(ICommandSender sender, String[] arguments) {
 		if (arguments.length == 1) {
-		    return CommandBase.getListOfStringsMatchingLastWord(arguments, "createZone", "ping", "deleteZone", "modifyZone" , "list" , "zoneInfo");
-		  } else if (arguments.length == 2) {
-		    return CommandBase.getListOfStringsMatchingLastWord(arguments,"touchItem" , "removeItem");
-		  }
+		    return CommandBase.getListOfStringsMatchingLastWord(arguments, "createZone", "ping", "deleteZone", "touchItem" , "list" , "zoneInfo", "changeMaxProductionTime" , "removeItem");
+		  } 
 		
 			return null;
 	}
@@ -270,3 +286,4 @@ public class Commandes extends CommandBase implements ICommand  {
 
 
 }
+
